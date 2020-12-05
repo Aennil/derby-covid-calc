@@ -9,10 +9,10 @@ import datetime
 # REQUIRED INPUT (EDIT HERE) #
 region = 'Östergötland'
 region_tot = 461583
+
 filepath = '/path/to/where/you/want/to/store/the/data'
-
 start_date = datetime.datetime.strptime('2020-08-17', '%Y-%m-%d')
-
+end = datetime.datetime.strptime('2020-10-26', '%Y-%m-%d')
 #------ CODE BEGINS HERE ------ #
 class color:
    PURPLE = '\033[95m'
@@ -30,7 +30,7 @@ region_two_week = round((region_tot/100000)*50) # WFTDA calc, max allowable case
 region_day = round(region_two_week/14) # WFTDA calc, max allowable cases per day
 
 url = 'https://www.arcgis.com/sharing/rest/content/items/b5e7488e117749c19881cce45db13f7e/data'
-#wget.download(url, filepath + 'Covid19.xlsx') # Download data from Folkhälsomyndigheten
+wget.download(url, filepath + 'Covid19.xlsx') # Download data from Folkhälsomyndigheten
 seven_day_average = pd.read_excel(filepath + 'Covid19.xlsx', sheet_name=0)
 
 def calc_twoweek_region(data):
@@ -45,8 +45,8 @@ def calc_twoweek_region(data):
 # Start
 tier = 0
 days = 0
+days_since_increase = 0
 
-end = datetime.datetime.today()
 date_list = [start_date + datetime.timedelta(days=x) for x in range(0, (end-start_date).days)]
 
 for date in date_list:    
@@ -69,6 +69,7 @@ for date in date_list:
     model = LinearRegression().fit(x_reshaped, y)
     y_trend = model.intercept_ + model.coef_*x
 
+    
     # Tier tracking
     if tier == 0:
         if cases < region_two_week:
@@ -80,11 +81,15 @@ for date in date_list:
     elif tier == 1:
         # Add a count, number of days since 7-day trend, when it hits 7, affects action!
         # days_since_increase, always increases if it is already more than 0
+        if days_since_increase > 0:
+           days_since_increase = days_since_increase + 1
         # set to 1 at first positive trend
         # reset to 0 if OK after 7 days
         if model.coef_ > 0:
             action = 'Stay at Tier 1, 7-day increase trend'
             days = 1
+            if days_since_increase == 0:
+               days_since_increase = 1
         else:
             if days >= 14:
                 action = 'Step up to Tier 2 from Tier 1, 14-days passed with no 7-day increase trend'
@@ -94,11 +99,21 @@ for date in date_list:
                 action = 'Stay at Tier 1, no 7-day increase, but 14 days has not passed yet'
                 days = days + 1
 
+    # 7 days has passed since there was a positive 7-day trend, check if still positive
+    # If after 7 days
+    if days_since_increase == 8:
+         if model.coef_ > 0:
+            action = 'Return to Baseline'
+            tier = 0
+         days_since_increase = 0 # Either if returning to baseline, or if no longer positive, reset
+
     # Printing
     print('#----------' + str(date.strftime('%Y-%m-%d')) + '---------#')
     print(f"{color.BOLD}Action: {color.END}{action}")
     print(f"{color.BOLD}Trend: {color.END}{model.coef_}")
     print(f"{color.BOLD}Tier: {color.END}{tier} , number of days spent at this tier: {days}")
+    print(f"{color.BOLD}Number of days with positive 7-day trend in a row:" +
+          f"{color.END}{days_since_increase}")
     print(f"{color.BOLD}Number of cases over 14-days: {color.END}{cases}")
     print(f"{color.BOLD}Max number of allowable cases over 14-days (WFTDA):"
           + f"{color.END}{region_two_week}")
